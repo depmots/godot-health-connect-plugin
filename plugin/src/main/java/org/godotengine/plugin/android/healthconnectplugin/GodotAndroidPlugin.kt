@@ -8,6 +8,7 @@ import com.viktormykhailiv.kmp.health.HealthDataType.Steps
 import com.viktormykhailiv.kmp.health.HealthManagerFactory
 import com.viktormykhailiv.kmp.health.duration
 import com.viktormykhailiv.kmp.health.readSteps
+import com.viktormykhailiv.kmp.health.records.StepsRecord
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
+import org.godotengine.godot.plugin.SignalInfo
 import org.godotengine.godot.plugin.UsedByGodot
+import org.godotengine.godot.Dictionary
 import kotlin.time.Duration.Companion.days
 
 
@@ -24,6 +27,13 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
 
     override fun getPluginName() = BuildConfig.GODOT_PLUGIN_NAME
 
+    override fun getPluginSignals(): Set<SignalInfo?> {
+
+        return setOf(
+            SignalInfo("onStepsReceived", Dictionary::class.java),  // signal with one String argument
+            SignalInfo("on_ready")                       // signal with no args
+        )
+    }
 
     val health = HealthManagerFactory().createManager()
 
@@ -97,8 +107,13 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
                 startTime = Clock.System.now().minus(1.days),
                 endTime = Clock.System.now(),
             ).onSuccess { steps ->
+                val dict = Dictionary()
                 steps.forEachIndexed { index, record ->
                     println("[$index] ${record.count} steps for ${record.duration}")
+                    dict.apply {
+                        put(index.toString(), record.toDictionary())
+                    }
+                    emitSignal("onStepsReceived", dict)
                 }
                 if (steps.isEmpty()) {
                     println("No steps data")
@@ -108,6 +123,19 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
             }
         }
     }
+
+    fun StepsRecord.toDictionary(): Dictionary {
+        val dict = Dictionary()
+        dict["count"] = count
+        dict["end_time"] = endTime.toEpochMilliseconds()
+        dict["start_time"] = startTime.toEpochMilliseconds()
+        dict["id"] = metadata.id
+        metadata.device?.let { dict["device"] = it.model }
+        dict["method"] = metadata.recordingMethod.toString()
+        return dict
+    }
+
+
 
 
 }
