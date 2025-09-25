@@ -1,5 +1,7 @@
 package org.godotengine.plugin.android.healthconnectplugin
 
+import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.ContentValues.TAG
 import android.content.Context
 import android.os.Build
@@ -12,7 +14,11 @@ import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.feature.ExperimentalFeatureAvailabilityApi
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.permission.HealthPermission.Companion.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.request.ReadRecordsRequest
+import androidx.health.connect.client.time.TimeRangeFilter
+import java.time.Instant
 
 
 const val MIN_SUPPORTED_SDK = Build.VERSION_CODES.O_MR1
@@ -25,6 +31,9 @@ class HealthConnectManager(private val context: Context) {
         HealthPermission.getReadPermission(StepsRecord::class),
         HealthPermission.getWritePermission(StepsRecord::class),
     )
+
+    @SuppressLint("RestrictedApi")
+    val backgroundReadPermissions = kotlin.collections.setOf(PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)
 
     var availability = mutableStateOf(HealthConnectAvailability.NOT_SUPPORTED)
         private set
@@ -59,13 +68,23 @@ class HealthConnectManager(private val context: Context) {
     }
 
 
+    val requestPermissionActivityContract = PermissionController.createRequestPermissionResultContract()
+    fun requestPermissionsDirectly(activity: Activity?) {
+        val intent = PermissionController.createRequestPermissionResultContract()
 
-    fun requestPermissions()
-    {
-        Log.i(TAG, "requestPermissions:${isFeatureAvailable(HealthConnectFeatures.FEATURE_HEALTH_DATA_HISTORIC_READ)}")
-        Log.i(TAG, "requestPermissions:${isFeatureAvailable(HealthConnectFeatures.FEATURE_HEALTH_DATA_BACKGROUND_READ)}")
-        requestPermissionsActivityContract()
-        Log.i(TAG, "Test:$availability")
+
+    }
+
+
+
+
+    suspend fun readExerciseSessions(start: Instant, end: Instant): List<StepsRecord> {
+        val request = ReadRecordsRequest(
+            recordType = StepsRecord::class,
+            timeRangeFilter = TimeRangeFilter.between(start, end)
+        )
+        val response = healthConnectClient.readRecords(request)
+        return response.records
     }
 
 }

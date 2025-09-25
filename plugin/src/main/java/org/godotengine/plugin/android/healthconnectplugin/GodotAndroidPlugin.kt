@@ -1,19 +1,19 @@
 package org.godotengine.plugin.android.healthconnectplugin
 
 import android.content.ContentValues.TAG
-import android.content.Intent
-import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
-import androidx.health.connect.client.HealthConnectClient
-import androidx.health.connect.client.HealthConnectClient.Companion.SDK_AVAILABLE
-import androidx.health.connect.client.PermissionController
-import androidx.health.connect.client.permission.HealthPermission
-import androidx.health.connect.client.records.HeartRateRecord
-import androidx.health.connect.client.records.StepsRecord
+import androidx.annotation.RequiresApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.UsedByGodot
+import java.time.Instant
+import java.time.ZoneId
 
 class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
 
@@ -37,8 +37,27 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
     }
 
     @UsedByGodot
-    fun requestHealthConnectPermission() {
-        healthConnectManager?.requestPermissions()
+    fun requestPermissions() {
+
+            val result = healthConnectManager?.requestPermissionsDirectly(activity)
+
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
+    @UsedByGodot
+    fun readStepsForTheDay() {
+        val now = Instant.now()
+        val startOfDay = now.atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val result = healthConnectManager?.readExerciseSessions(startOfDay, now)
+
+            withContext(Dispatchers.Main) {
+                Log.i(TAG, "requestHealthConnectPermission: ")
+            }
+        }
+    }
 }
