@@ -19,6 +19,10 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
 
     override fun getPluginName() = BuildConfig.GODOT_PLUGIN_NAME
 
+    val healthConnectManager by lazy {
+        activity?.let { HealthConnectManager(it) }
+    }
+
     /**
      * Example showing how to declare a method that's used by Godot.
      *
@@ -30,6 +34,11 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
             Toast.makeText(activity, "Hello World", Toast.LENGTH_LONG).show()
             Log.v(pluginName, "Hello World")
         }
+    }
+
+    @UsedByGodot
+    fun requestHealthConnectPermission() {
+        healthConnectManager?.requestPermissions()
     }
 
 }
