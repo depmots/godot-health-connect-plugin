@@ -38,7 +38,8 @@ android {
 dependencies {
     implementation("org.godotengine:godot:4.3.0.stable")
     // TODO: Additional dependencies should be added to export_plugin.gd as well.
-    implementation("androidx.health.connect:connect-client:1.1.0-alpha01")
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha08")
+    implementation("androidx.compose.runtime:runtime:1.9.2")
 }
 
 // BUILD TASKS DEFINITION
