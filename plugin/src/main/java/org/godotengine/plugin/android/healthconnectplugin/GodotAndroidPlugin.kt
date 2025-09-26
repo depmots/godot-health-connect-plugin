@@ -88,31 +88,30 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
 
     // Override this method to handle activity results
     override fun onMainActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == HEALTH_CONNECT_PERMISSION_REQUEST_CODE) {
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    val contract = healthConnectManager.requestPermissionsActivityContract()
+                    val allPermissions = permissions + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
+                    val result = contract.parseResult(resultCode, data)
 
-    if (requestCode == HEALTH_CONNECT_PERMISSION_REQUEST_CODE) {
-        CoroutineScope(Dispatchers.Main).launch {
-            try {
-                val contract = healthConnectManager.requestPermissionsActivityContract()
-                val allPermissions = permissions + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
-                val result = contract.parseResult(resultCode, data)
+                    val message = if (result.containsAll(allPermissions)) {
+                        "All permissions granted successfully!"
+                    } else {
+                        "Some permissions were denied. Granted: ${result.size}/${allPermissions.size}"
+                    }
 
-                val message = if (result.containsAll(allPermissions)) {
-                    "All permissions granted successfully!"
-                } else {
-                    "Some permissions were denied. Granted: ${result.size}/${allPermissions.size}"
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(godot.getActivity(), message, Toast.LENGTH_LONG).show()
+                        Log.i(TAG, "Permission result: $message")
+                        Log.i(TAG, "Granted permissions: $result")
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing permission result", e)
                 }
-
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(godot.getActivity(), message, Toast.LENGTH_LONG).show()
-                    Log.i(TAG, "Permission result: $message")
-                    Log.i(TAG, "Granted permissions: $result")
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing permission result", e)
             }
         }
-    }
 }
 
 @UsedByGodot
@@ -184,38 +183,73 @@ fun checkCurrentPermissionStatus() {
 }
 
 @UsedByGodot
-fun testDirectPermissionLaunch() {
+fun openHealthConnectAppDirectly() {
+    healthConnectManager.openHealthConnectPermissionsScreen(godot.getActivity()!!)
+}
+
+@UsedByGodot
+fun openHealthConnectViaPackageManager() {
     try {
-        Log.i(TAG, "=== Testing Direct Permission Launch ===")
+        Log.i(TAG, "=== Opening Health Connect via Package Manager ===")
 
-        val allPermissions = permissions + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
-        Log.i(TAG, "Creating permission request for ${allPermissions.size} permissions")
+        val context = godot.getActivity()!!
+        val packageManager = context.packageManager
 
-        // Try creating the intent manually
-        val intent = android.content.Intent("androidx.health.ACTION_REQUEST_PERMISSIONS")
-        intent.setPackage("com.google.android.apps.healthdata")
-        intent.putExtra("androidx.health.REQUEST_PERMISSIONS_KEY", allPermissions.toTypedArray())
+        try {
+            // Get the Health Connect app's launch intent
+            val launchIntent = packageManager.getLaunchIntentForPackage("com.google.android.apps.healthdata")
 
-        Log.i(TAG, "Intent created with action: ${intent.action}")
-        Log.i(TAG, "Intent package: ${intent.`package`}")
-        Log.i(TAG, "Intent extras: ${intent.extras?.keySet()}")
+            if (launchIntent != null) {
+                Log.i(TAG, "✓ Found Health Connect launch intent")
+                context.startActivity(launchIntent)
 
-        // Try to resolve the intent
-        val resolveInfo = godot.getActivity()!!.packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
-        if (resolveInfo != null) {
-            Log.i(TAG, "✓ Intent can be resolved to: ${resolveInfo.activityInfo.name}")
+                runOnUiThread {
+                    Toast.makeText(activity, "Opened Health Connect app - navigate to App permissions → podo", Toast.LENGTH_LONG).show()
+                }
+            } else {
+                Log.e(TAG, "✗ Could not get launch intent for Health Connect")
+                runOnUiThread {
+                    Toast.makeText(activity, "Health Connect app not found", Toast.LENGTH_SHORT).show()
+                }
+            }
 
-            // Launch it
-            Log.i(TAG, "Launching intent directly...")
-            godot.getActivity()!!.startActivityForResult(intent, HEALTH_CONNECT_PERMISSION_REQUEST_CODE + 1)
-
-        } else {
-            Log.e(TAG, "✗ Intent cannot be resolved - no activity found")
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Failed to launch Health Connect app", e)
+            runOnUiThread {
+                Toast.makeText(activity, "Could not launch Health Connect app", Toast.LENGTH_SHORT).show()
+            }
         }
 
     } catch (e: Exception) {
-        Log.e(TAG, "Error in direct permission launch test", e)
-        e.printStackTrace()
+        Log.e(TAG, "Error in package manager approach", e)
+    }
+}
+
+@UsedByGodot
+fun openSystemHealthConnectSettings() {
+    try {
+        Log.i(TAG, "=== Opening System Health Connect Settings ===")
+
+        val context = godot.getActivity()!!
+
+        // Try opening system settings for Health Connect
+        val intent = android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+
+        try {
+            context.startActivity(intent)
+            runOnUiThread {
+                Toast.makeText(activity, "Navigate to: Privacy → Health Connect → App permissions → podo", Toast.LENGTH_LONG).show()
+            }
+            Log.i(TAG, "✓ Opened system settings - user should navigate to Health Connect")
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Failed to open system settings", e)
+            runOnUiThread {
+                Toast.makeText(activity, "Could not open settings", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    } catch (e: Exception) {
+        Log.e(TAG, "Error opening system settings", e)
     }
 }
 }

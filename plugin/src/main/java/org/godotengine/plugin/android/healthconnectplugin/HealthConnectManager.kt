@@ -22,6 +22,7 @@ import android.content.pm.PackageManager
 import android.content.res.Resources.NotFoundException
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +97,26 @@ class HealthConnectManager(private val context: Context) {
 
     suspend fun revokeAllPermissions() {
         healthConnectClient.permissionController.revokeAllPermissions()
+    }
+
+    fun openHealthConnectPermissionsScreen(context: Context) {
+        try {
+            val intent = Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS).apply {
+                putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+            }
+
+            // Check if the intent can be resolved
+            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+            if (resolveInfo != null) {
+                context.startActivity(intent)
+                Toast.makeText(context, "Opening Health Connect permissions", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Health Connect app not installed", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Error opening Health Connect permissions screen", e)
+            Toast.makeText(context, "Failed to open Health Connect permissions", Toast.LENGTH_SHORT).show()
+        }
     }
 
 
