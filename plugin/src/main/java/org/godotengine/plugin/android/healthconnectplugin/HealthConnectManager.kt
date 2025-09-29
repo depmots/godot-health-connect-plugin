@@ -99,25 +99,7 @@ class HealthConnectManager(private val context: Context) {
         healthConnectClient.permissionController.revokeAllPermissions()
     }
 
-    fun openHealthConnectPermissionsScreen(context: Context) {
-        try {
-            val intent = Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS).apply {
-                putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
-            }
 
-            // Check if the intent can be resolved
-            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
-            if (resolveInfo != null) {
-                context.startActivity(intent)
-                Toast.makeText(context, "Opening Health Connect permissions", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Health Connect app not installed", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Log.e("HealthConnect", "Error opening Health Connect permissions screen", e)
-            Toast.makeText(context, "Failed to open Health Connect permissions", Toast.LENGTH_SHORT).show()
-        }
-    }
 
 
     /**
@@ -244,4 +226,36 @@ class HealthConnectManager(private val context: Context) {
 
         data class ChangeList(val changes: List<Change>) : ChangesMessage()
     }
+
+    suspend fun readStepsByTimeRange(
+        healthConnectClient: HealthConnectClient,
+        startTime: Instant,
+        endTime: Instant
+    ): List<StepsRecord> {
+        return try {
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    StepsRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+            response.records
+        } catch (e: Exception) {
+            // Log or handle the exception if needed
+            emptyList()
+        }
+    }
+
+    suspend fun aggregateSteps(client: HealthConnectClient, start: Instant, end: Instant): Long {
+        val response = client.aggregate(
+            AggregateRequest(
+                metrics = setOf(StepsRecord.COUNT_TOTAL),
+                timeRangeFilter = TimeRangeFilter.between(start, end)
+            )
+        )
+
+        return response[StepsRecord.COUNT_TOTAL] ?: 0L
+    }
+
+
 }

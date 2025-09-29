@@ -1,12 +1,16 @@
 package org.godotengine.plugin.android.healthconnectplugin
 
-import android.app.Activity
 import android.content.ContentValues.TAG
+import android.content.Context
 import android.content.Intent
+
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.permission.HealthPermission.Companion.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
 import androidx.health.connect.client.records.StepsRecord
@@ -14,24 +18,167 @@ import com.example.healthconnectsample.data.HealthConnectManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.godotengine.godot.Dictionary
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.SignalInfo
 import org.godotengine.godot.plugin.UsedByGodot
+import java.time.temporal.ChronoUnit
+import java.time.Instant
 
 
-class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
+class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot), SensorEventListener {
 
     override fun getPluginName() = BuildConfig.GODOT_PLUGIN_NAME
 
     override fun getPluginSignals(): Set<SignalInfo?> {
         return setOf(
             SignalInfo("onStepsReceived", Dictionary::class.java),  // signal with one String argument
-            SignalInfo("on_ready")                       // signal with no args
+            SignalInfo("onPermissionStatusReceived", Integer::class.java),  // Fixed
+            SignalInfo("onPermissionResultReceived", Integer::class.java),
+            SignalInfo("onStepCountUpdated", Integer::class.java),
+            SignalInfo("onStepDetected", Integer::class.java),
         )
     }
+
+
+
+
+    @UsedByGodot
+    fun helloWorld() {
+        runOnUiThread {
+            Toast.makeText(activity, "Hello World", Toast.LENGTH_LONG).show()
+            Log.v(pluginName, "Hello World")
+        }
+    }
+
+
+    private var sensorManager: SensorManager? = null
+    private var stepCounterSensor: Sensor? = null
+    private var stepDetectorSensor: Sensor? = null
+    private var initialStepCount: Int = 0
+    private var isStepCounterInitialized = false
+
+    @UsedByGodot
+    fun initPedometer() {
+        try {
+            sensorManager = godot.getActivity()!!.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+
+            // TYPE_STEP_COUNTER gives total steps since last reboot
+            stepCounterSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+
+            // TYPE_STEP_DETECTOR triggers an event for each step
+            stepDetectorSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+
+            if (stepCounterSensor == null && stepDetectorSensor == null) {
+                Log.e(TAG, "No step sensors available on this device")
+                runOnUiThread {
+                    Toast.makeText(activity, "Device does not have a step counter", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Log.i(TAG, "Step sensors initialized successfully")
+                Log.i(TAG, "Step Counter: ${stepCounterSensor != null}")
+                Log.i(TAG, "Step Detector: ${stepDetectorSensor != null}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing pedometer", e)
+        }
+    }
+
+    @UsedByGodot
+    fun startStepCounting() {
+        try {
+            isStepCounterInitialized = false
+
+            stepCounterSensor?.let { sensor ->
+                sensorManager?.registerListener(
+                    this,
+                    sensor,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                )
+                Log.i(TAG, "Started step counter")
+            }
+
+            stepDetectorSensor?.let { sensor ->
+                sensorManager?.registerListener(
+                    this,
+                    sensor,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                )
+                Log.i(TAG, "Started step detector")
+            }
+
+            runOnUiThread {
+                Toast.makeText(activity, "Step counting started", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting step counting", e)
+        }
+    }
+
+    @UsedByGodot
+    fun stopStepCounting() {
+        try {
+            sensorManager?.unregisterListener(this)
+            Log.i(TAG, "Stopped step counting")
+
+            runOnUiThread {
+                Toast.makeText(activity, "Step counting stopped", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping step counting", e)
+        }
+    }
+
+    @UsedByGodot
+    fun isPedometerAvailable(): Boolean {
+        return stepCounterSensor != null || stepDetectorSensor != null
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        Log.d(TAG, "Sensor accuracy changed: $accuracy")
+    }
+
+    // Call this in your plugin's cleanup/destroy
+    override fun onMainDestroy() {
+        super.onMainDestroy()
+        stopStepCounting()
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        event?.let {
+            when (it.sensor.type) {
+                Sensor.TYPE_STEP_COUNTER -> {
+                    // Returns total steps since last reboot
+                    val totalSteps = it.values[0].toInt()
+
+                    if (!isStepCounterInitialized) {
+                        initialStepCount = totalSteps
+                        isStepCounterInitialized = true
+                        Log.i(TAG, "Initial step count: $initialStepCount")
+                    }
+
+                    val stepsSinceStart = totalSteps - initialStepCount
+                    Log.d(TAG, "Steps since start: $stepsSinceStart (Total: $totalSteps)")
+
+                    // Emit signal with steps since we started counting
+                    emitSignal("onStepCountUpdated", Integer.valueOf(stepsSinceStart))
+                }
+
+                Sensor.TYPE_STEP_DETECTOR -> {
+                    // Triggers once per step detected
+                    Log.d(TAG, "Step detected!")
+                    emitSignal("onStepDetected", Integer.valueOf(1))
+                }
+            }
+        }
+    }
+
+    
+
+
 
     private val changesDataTypes = setOf(
         StepsRecord::class,
@@ -43,16 +190,11 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
         HealthConnectManager(godot.getActivity()!!)
     }
 
-    @UsedByGodot
-    fun helloWorld() {
-        runOnUiThread {
-            Toast.makeText(activity, "Hello World", Toast.LENGTH_LONG).show()
-            Log.v(pluginName, "Hello World")
-        }
-    }
 
     companion object {
         private const val HEALTH_CONNECT_PERMISSION_REQUEST_CODE = 1001
+        private const val ACTIVITY_RECOGNITION_REQUEST_CODE = 1002
+
     }
 
     @UsedByGodot
@@ -80,6 +222,7 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error requesting permissions", e)
                 withContext(Dispatchers.Main) {
+                    openHealthConnectSettings()
                     Toast.makeText(godot.getActivity(), "Error requesting permissions: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -97,14 +240,21 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
 
                     val message = if (result.containsAll(allPermissions)) {
                         "All permissions granted successfully!"
+
                     } else {
                         "Some permissions were denied. Granted: ${result.size}/${allPermissions.size}"
                     }
 
+
+
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(godot.getActivity(), message, Toast.LENGTH_LONG).show()
-                        Log.i(TAG, "Permission result: $message")
-                        Log.i(TAG, "Granted permissions: $result")
+
+                        emitSignal("onPermissionResultReceived", Integer.valueOf(if (result.containsAll(allPermissions)) 1 else 0))
+
+//
+//                        Toast.makeText(godot.getActivity(), message, Toast.LENGTH_LONG).show()
+//                        Log.i(TAG, "Permission result: $message")
+//                        Log.i(TAG, "Granted permissions: $result")
                     }
 
                 } catch (e: Exception) {
@@ -112,144 +262,133 @@ class GodotAndroidPlugin(godot: Godot): GodotPlugin(godot) {
                 }
             }
         }
-}
-
-@UsedByGodot
-fun checkPermissions() {
-    CoroutineScope(Dispatchers.Main).launch {
-        try {
-            val allPermissions = permissions + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
-
-            Log.i(TAG, "=== Permission Check ===")
-            Log.i(TAG, "Generated permissions from data types:")
-            permissions.forEach { permission ->
-                Log.i(TAG, "  - $permission")
-            }
-            Log.i(TAG, "Background permission:")
-            Log.i(TAG, "  - $PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND")
-
-            val granted = healthConnectManager.hasAllPermissions(allPermissions)
-
-            withContext(Dispatchers.Main) {
-                val message = if (granted) "All permissions granted" else "Some permissions missing"
-                Toast.makeText(godot.getActivity(), message, Toast.LENGTH_SHORT).show()
-                Log.i(TAG, message)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error checking permissions", e)
-        }
     }
-}
 
-@UsedByGodot
-fun checkCurrentPermissionStatus() {
-    CoroutineScope(Dispatchers.Main).launch {
+
+    @UsedByGodot
+    fun openHealthConnectSettings() {
         try {
-            val allPermissions = permissions + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
+            Log.i(TAG, "=== Opening Health Connect Settings Directly ===")
 
-            Log.i(TAG, "=== Current Permission Status ===")
+            val context = godot.getActivity()!!
+            val packageName = context.packageName
 
-            // Get currently granted permissions directly from Health Connect
-            val grantedPermissions = healthConnectManager.healthConnectClient.permissionController.getGrantedPermissions()
+            // Try different Health Connect settings intents
+            val intents = listOf(
+                // Direct app permissions for this app
+                android.content.Intent("androidx.health.action.HEALTH_PERMISSIONS_SETTINGS").apply {
+                    setPackage("com.google.android.apps.healthdata")
+                    putExtra("package_name", packageName)
+                },
+                // General Health Connect settings
+                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = android.net.Uri.fromParts("package", "com.google.android.apps.healthdata", null)
+                },
+                // Health Connect main settings
+                android.content.Intent("android.settings.HEALTH_CONNECT_SETTINGS")
+            )
 
-            Log.i(TAG, "All granted permissions from Health Connect (${grantedPermissions.size}):")
-            if (grantedPermissions.isEmpty()) {
-                Log.i(TAG, "  (no permissions granted)")
-            } else {
-                grantedPermissions.forEach { permission ->
-                    Log.i(TAG, "  ✓ $permission")
+            for ((index, intent) in intents.withIndex()) {
+                Log.i(TAG, "Trying intent ${index + 1}: ${intent.action}")
+
+                try {
+                    val resolveInfo = context.packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                    if (resolveInfo != null) {
+                        Log.i(TAG, "✓ Intent ${index + 1} can be resolved, launching...")
+                        context.startActivity(intent)
+
+                        runOnUiThread {
+                            Toast.makeText(activity, "Opening Health Connect settings", Toast.LENGTH_SHORT).show()
+                        }
+                        return
+                    } else {
+                        Log.w(TAG, "✗ Intent ${index + 1} cannot be resolved")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "✗ Intent ${index + 1} failed: ${e.message}")
                 }
             }
 
-            Log.i(TAG, "Requested permissions status:")
-            allPermissions.forEach { permission ->
-                val isGranted = grantedPermissions.contains(permission)
-                Log.i(TAG, "  ${if (isGranted) "✓" else "✗"} $permission")
-            }
-
-            val allGranted = grantedPermissions.containsAll(allPermissions)
-
-            withContext(Dispatchers.Main) {
-                val message = "Permissions: ${grantedPermissions.size} granted total, ${if (allGranted) "all required granted" else "missing required permissions"}"
-                Toast.makeText(godot.getActivity(), message, Toast.LENGTH_LONG).show()
-                Log.i(TAG, message)
+            Log.e(TAG, "All Health Connect settings intents failed")
+            runOnUiThread {
+                Toast.makeText(activity, "Could not open Health Connect settings", Toast.LENGTH_SHORT).show()
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking current permission status", e)
+            Log.e(TAG, "Error opening Health Connect settings", e)
             e.printStackTrace()
         }
     }
-}
 
-@UsedByGodot
-fun openHealthConnectAppDirectly() {
-    healthConnectManager.openHealthConnectPermissionsScreen(godot.getActivity()!!)
-}
+    @UsedByGodot
+    fun checkPermissions() {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val allPermissions = permissions + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
 
-@UsedByGodot
-fun openHealthConnectViaPackageManager() {
-    try {
-        Log.i(TAG, "=== Opening Health Connect via Package Manager ===")
-
-        val context = godot.getActivity()!!
-        val packageManager = context.packageManager
-
-        try {
-            // Get the Health Connect app's launch intent
-            val launchIntent = packageManager.getLaunchIntentForPackage("com.google.android.apps.healthdata")
-
-            if (launchIntent != null) {
-                Log.i(TAG, "✓ Found Health Connect launch intent")
-                context.startActivity(launchIntent)
-
-                runOnUiThread {
-                    Toast.makeText(activity, "Opened Health Connect app - navigate to App permissions → podo", Toast.LENGTH_LONG).show()
+                Log.i(TAG, "=== Permission Check ===")
+                Log.i(TAG, "Generated permissions from data types:")
+                permissions.forEach { permission ->
+                    Log.i(TAG, "  - $permission")
                 }
-            } else {
-                Log.e(TAG, "✗ Could not get launch intent for Health Connect")
-                runOnUiThread {
-                    Toast.makeText(activity, "Health Connect app not found", Toast.LENGTH_SHORT).show()
-                }
-            }
+                Log.i(TAG, "Background permission:")
+                Log.i(TAG, "  - $PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND")
 
-        } catch (e: Exception) {
-            Log.e(TAG, "✗ Failed to launch Health Connect app", e)
-            runOnUiThread {
-                Toast.makeText(activity, "Could not launch Health Connect app", Toast.LENGTH_SHORT).show()
+                val granted = healthConnectManager.hasAllPermissions(allPermissions)
+
+                withContext(Dispatchers.Main) {
+                    emitSignal("onPermissionStatusReceived", Integer.valueOf(if (granted) 1 else 0))
+
+
+//                    val message = if (granted) "All permissions granted" else "Some permissions missing"
+//                    Toast.makeText(godot.getActivity(), message, Toast.LENGTH_SHORT).show()
+//                    Log.i(TAG, message)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking permissions", e)
             }
         }
-
-    } catch (e: Exception) {
-        Log.e(TAG, "Error in package manager approach", e)
     }
-}
 
-@UsedByGodot
-fun openSystemHealthConnectSettings() {
-    try {
-        Log.i(TAG, "=== Opening System Health Connect Settings ===")
+    @UsedByGodot
+    fun getStepsSince(p_startTime: Long, p_endTime: Long): Long? {
+        val now = Instant.ofEpochMilli(p_endTime)
+        val startTime = Instant.ofEpochMilli(p_startTime)
 
-        val context = godot.getActivity()!!
-
-        // Try opening system settings for Health Connect
-        val intent = android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
-
-        try {
-            context.startActivity(intent)
-            runOnUiThread {
-                Toast.makeText(activity, "Navigate to: Privacy → Health Connect → App permissions → podo", Toast.LENGTH_LONG).show()
+        return try {
+            runBlocking {
+                healthConnectManager.aggregateSteps(
+                    healthConnectManager.healthConnectClient,
+                    startTime,
+                    now
+                )
             }
-            Log.i(TAG, "✓ Opened system settings - user should navigate to Health Connect")
         } catch (e: Exception) {
-            Log.e(TAG, "✗ Failed to open system settings", e)
-            runOnUiThread {
-                Toast.makeText(activity, "Could not open settings", Toast.LENGTH_SHORT).show()
-            }
+            null
         }
-
-    } catch (e: Exception) {
-        Log.e(TAG, "Error opening system settings", e)
     }
-}
+
+
+
+
+
+
+
+
+
+    fun StepsRecord.toDictionary(): Dictionary {
+        val dict = Dictionary()
+        dict["count"] = count
+        dict["end_time"] = endTime.toEpochMilli()
+        dict["start_time"] = startTime.toEpochMilli()
+        dict["id"] = metadata.id
+        metadata.device?.let { dict["device"] = it.model }
+        dict["method"] = metadata.recordingMethod.toString()
+        return dict
+    }
+
+
+
+
+
 }

@@ -44,39 +44,41 @@ dependencies {
 }
 
 // BUILD TASKS DEFINITION
-val copyDebugAARToDemoAddons by tasks.registering(Copy::class) {
-    description = "Copies the generated debug AAR binary to the plugin's addons directory"
+// BUILD TASKS DEFINITION
+val copyDebugAARToBin by tasks.registering(Copy::class) {
+    description = "Copies the generated debug AAR binary to the plugin's bin directory"
     from("build/outputs/aar")
     include("$pluginName-debug.aar")
-    into("demo/addons/$pluginName/bin/debug")
+    into("A:/projects/apps/podo/addons/healthbridge/bin/debug")
 }
 
-val copyReleaseAARToDemoAddons by tasks.registering(Copy::class) {
-    description = "Copies the generated release AAR binary to the plugin's addons directory"
+val copyReleaseAARToBin by tasks.registering(Copy::class) {
+    description = "Copies the generated release AAR binary to the plugin's bin directory"
     from("build/outputs/aar")
     include("$pluginName-release.aar")
-    into("demo/addons/$pluginName/bin/release")
+    into("A:/projects/apps/podo/addons/healthbridge/bin/release")
 }
 
-val cleanDemoAddons by tasks.registering(Delete::class) {
-    delete("demo/addons/$pluginName")
+val cleanBin by tasks.registering(Delete::class) {
+    delete("A:/projects/apps/podo/addons/healthbridge/bin")
 }
 
-val copyAddonsToDemo by tasks.registering(Copy::class) {
-    description = "Copies the export scripts templates to the plugin's addons directory"
+val copyAddonsToBin by tasks.registering(Copy::class) {
+    description = "Copies the export scripts templates to the plugin's bin directory"
 
-    dependsOn(cleanDemoAddons)
-    finalizedBy(copyDebugAARToDemoAddons)
-    finalizedBy(copyReleaseAARToDemoAddons)
+    dependsOn(cleanBin)
+    finalizedBy(copyDebugAARToBin)
+    finalizedBy(copyReleaseAARToBin)
 
-    from("export_scripts_template")
-    into("demo/addons/$pluginName")
+//    from("export_scripts_template")
+//    into("A:/projects/apps/podo/addons/healthbridge")
 }
+
 
 tasks.named("assemble").configure {
-    finalizedBy(copyAddonsToDemo)
+    finalizedBy(copyAddonsToBin)
 }
 
 tasks.named<Delete>("clean").apply {
-    dependsOn(cleanDemoAddons)
+    dependsOn(cleanBin)
 }
